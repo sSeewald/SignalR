@@ -9,17 +9,23 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Internal;
+using System;
 
 namespace Microsoft.AspNetCore.Sockets.Internal
 {
     public static class AuthorizeHelper
     {
-        public static async Task<bool> AuthorizeAsync(HttpContext context, IEnumerable<string> policies)
+        public static async Task<bool> AuthorizeAsync(HttpContext context, List<string> policies)
         {
+            if (policies.Count == 0)
+            {
+                return true;
+            }
+
             var policyProvider = context.RequestServices.GetRequiredService<IAuthorizationPolicyProvider>();
             if (policyProvider == null)
             {
-                return true;
+                throw new InvalidOperationException($"No {nameof(IAuthorizationPolicyProvider)} configured");
             }
 
             var authorizeAttributes = new List<AuthorizeAttribute>();
@@ -29,51 +35,46 @@ namespace Microsoft.AspNetCore.Sockets.Internal
             }
 
             var authorizePolicy = await AuthorizationPolicy.CombineAsync(policyProvider, authorizeAttributes);
-            if (authorizePolicy != null)
+            if (authorizePolicy.AuthenticationSchemes != null && authorizePolicy.AuthenticationSchemes.Count > 0)
             {
-                if (authorizePolicy.AuthenticationSchemes != null && authorizePolicy.AuthenticationSchemes.Count > 0)
+                ClaimsPrincipal newPrincipal = null;
+                foreach (var scheme in authorizePolicy.AuthenticationSchemes)
                 {
-                    ClaimsPrincipal newPrincipal = null;
-                    foreach (var scheme in authorizePolicy.AuthenticationSchemes)
+                    var result = await context.Authentication.AuthenticateAsync(scheme);
+                    if (result != null)
                     {
-                        var result = await context.Authentication.AuthenticateAsync(scheme);
-                        if (result != null)
-                        {
-                            newPrincipal = SecurityHelper.MergeUserPrincipal(newPrincipal, result);
-                        }
-                    }
-
-                    if (newPrincipal == null)
-                    {
-                        newPrincipal = new ClaimsPrincipal(new ClaimsIdentity());
-                    }
-
-                    context.User = newPrincipal;
-                }
-
-                var authService = context.RequestServices.GetRequiredService<IAuthorizationService>();
-                if (await authService.AuthorizeAsync(context.User, context, authorizePolicy))
-                {
-                    return true;
-                }
-
-                // Challenge
-                if (authorizePolicy.AuthenticationSchemes != null && authorizePolicy.AuthenticationSchemes.Count > 0)
-                {
-                    foreach (var scheme in authorizePolicy.AuthenticationSchemes)
-                    {
-                        await context.Authentication.ChallengeAsync(scheme, properties: null);
+                        newPrincipal = SecurityHelper.MergeUserPrincipal(newPrincipal, result);
                     }
                 }
-                else
+
+                if (newPrincipal == null)
                 {
-                    await context.Authentication.ChallengeAsync(properties: null);
+                    newPrincipal = new ClaimsPrincipal(new ClaimsIdentity());
                 }
 
-                return false;
+                context.User = newPrincipal;
             }
 
-            return true;
+            var authService = context.RequestServices.GetRequiredService<IAuthorizationService>();
+            if (await authService.AuthorizeAsync(context.User, context, authorizePolicy))
+            {
+                return true;
+            }
+
+            // Challenge
+            if (authorizePolicy.AuthenticationSchemes != null && authorizePolicy.AuthenticationSchemes.Count > 0)
+            {
+                foreach (var scheme in authorizePolicy.AuthenticationSchemes)
+                {
+                    await context.Authentication.ChallengeAsync(scheme, properties: null);
+                }
+            }
+            else
+            {
+                await context.Authentication.ChallengeAsync(properties: null);
+            }
+
+            return false;
         }
     }
 }
