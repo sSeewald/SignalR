@@ -1,15 +1,14 @@
 ﻿// Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
+using System;
 using System.Collections.Generic;
-using System.Net;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Internal;
-using System;
 
 namespace Microsoft.AspNetCore.Sockets.Internal
 {
@@ -23,12 +22,8 @@ namespace Microsoft.AspNetCore.Sockets.Internal
             }
 
             var policyProvider = context.RequestServices.GetRequiredService<IAuthorizationPolicyProvider>();
-            if (policyProvider == null)
-            {
-                throw new InvalidOperationException($"No {nameof(IAuthorizationPolicyProvider)} configured");
-            }
-
             var authorizeAttributes = new List<AuthorizeAttribute>();
+
             foreach (var policy in policies)
             {
                 authorizeAttributes.Add(new AuthorizeAttribute(policy));
